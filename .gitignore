@@ -1,0 +1,7 @@
+backend/venv/
+backend/service_account.json
+backend/.env
+__pycache__/
+*.pyc
+node_modules/
+dist/
