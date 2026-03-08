@@ -1,7 +1,8 @@
-import os, re, math, subprocess
+import os, re, math, subprocess, tempfile
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from urllib.parse import urlparse, parse_qs
+from pytubefix import YouTube as _YouTube
 
 import cv2
 import numpy as np
@@ -33,12 +34,7 @@ def video_id_from_url(url: str) -> str:
 
 def yt_title_safe(url: str) -> str:
     try:
-        p = subprocess.run(
-            ["yt-dlp", "--get-title", "--no-warnings", "--no-playlist", url],
-            capture_output=True,
-            text=True,
-        )
-        return (p.stdout or "").strip()
+        return (_YouTube(url).title or "").strip()
     except Exception:
         return ""
 
@@ -46,22 +42,23 @@ def yt_title_safe(url: str) -> str:
 def download_youtube(url: str, out_path: str) -> str:
     if os.path.exists(out_path):
         os.remove(out_path)
-    cmd = [
-        "yt-dlp",
-        "-f",
-        "bv*[ext=mp4][height<=480]+ba[ext=m4a]/b[ext=mp4][height<=480]/b",
-        "--merge-output-format",
-        "mp4",
-        "--no-playlist",
-        "-o",
-        out_path,
-        url,
-    ]
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed\n{(p.stderr or p.stdout or '')[:1500]}")
-    if not os.path.exists(out_path):
-        raise RuntimeError("Download failed: output mp4 not found.")
+
+    yt = _YouTube(url)
+    stream = (
+        yt.streams.filter(res="360p", file_extension="mp4", progressive=True).first()
+        or yt.streams.filter(file_extension="mp4", progressive=True).order_by("resolution").first()
+        or yt.streams.get_lowest_resolution()
+    )
+    if not stream:
+        raise RuntimeError("No downloadable stream found for this video.")
+
+    out_dir = os.path.dirname(out_path) or tempfile.gettempdir()
+    saved = stream.download(output_path=out_dir, filename=os.path.basename(out_path))
+    if saved != out_path:
+        os.rename(saved, out_path)
+
+    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+        raise RuntimeError("Download failed: output mp4 not found or empty.")
     return out_path
 
 
